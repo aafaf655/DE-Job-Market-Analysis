@@ -1,0 +1,145 @@
+version: 2
+
+models:
+  - name: fact_jobs
+    description: "Fact table containing cleaned job postings data from stg_jobs."
+    columns:
+      - name: job_posting_id
+        description: "Unique technical ID for each job posting."
+        tests:
+          - not_null
+          - unique
+
+      - name: original_job_id
+        description: "Original job ID from scraped data."
+
+      - name: site
+        description: "Website where the job was posted."
+
+      - name: job_url
+        description: "Job posting URL."
+
+      - name: job_url_direct
+        description: "Direct URL to job posting."
+
+      - name: title
+        description: "Job title."
+
+      - name: company
+        description: "Company name."
+
+      - name: location
+        description: "Job location."
+
+      - name: date_posted
+        description: "Date when the job was posted."
+
+      - name: job_type
+        description: "Type of job: full-time, part-time, etc."
+
+      - name: salary_source
+        description: "Source from where salary information was extracted."
+
+      - name: salary_interval
+        description: "Salary interval (e.g., yearly, monthly)."
+
+      - name: min_amount
+        description: "Minimum salary value."
+
+      - name: max_amount
+        description: "Maximum salary value."
+
+      - name: currency
+        description: "Currency for the salary."
+
+      - name: is_remote
+        description: "Boolean indicating if the job is remote."
+
+      - name: job_level
+        description: "Seniority level for the job."
+
+      - name: job_function
+        description: "Functional department of the job."
+
+      - name: listing_type
+        description: "Type of listing."
+
+      - name: emails
+        description: "Emails found in job description."
+
+      - name: description
+        description: "Full job description text."
+
+      - name: skills
+        description: "Skills required for the job (generated if missing)."
+
+      - name: number_of_skills
+        description: "Number of extracted skills."
+
+      - name: company_rating
+        description: "Rating of the company."
+
+      - name: company_reviews_count
+        description: "Number of reviews for the company."
+
+      - name: experience_range
+        description: "Experience range required."
+
+      - name: vacancy_count
+        description: "Number of open vacancies."
+
+      - name: work_from_home_type
+        description: "Remote work type information."
+
+  - name: dim_company
+    description: "Dimension table for company attributes."
+    columns:
+      - name: company_id
+        description: "Generated unique ID for the company."
+        tests:
+          - not_null
+
+      - name: company_name
+        description: "Name of the company."
+
+      - name: industry
+        description: "Industry sector of the company."
+
+      - name: num_employees
+        description: "Number of employees or range."
+
+      - name: revenue_range
+        description: "Revenue range for the company."
+
+      - name: company_description
+        description: "Brief description about the company."
+
+      - name: company_url
+        description: "URL to the company website."
+
+      - name: company_logo
+        description: "URL to the company's logo."
+
+      - name: company_url_direct
+        description: "Direct company page link."
+
+      - name: company_rating
+        description: "Average rating of the company."
+
+      - name: company_reviews_count
+        description: "Number of reviews received."
+
+  - name: dim_skills
+    description: "Dimension table for extracted skills from job descriptions."
+    columns:
+      - name: skill_id
+        description: "Generated unique ID for each skill."
+        tests:
+          - not_null
+          - unique
+
+      - name: skill_name
+        description: "Skill name extracted from job descriptions."
+
+      - name: number_of_jobs
+        description: "Number of jobs requesting this skill."

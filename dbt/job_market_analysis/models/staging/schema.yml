@@ -1,0 +1,65 @@
+version: 2
+
+sources:
+  - name: staging   # Replace with your dataset name (example: job_market_analytics)
+    database: de-job-market-analysis-457616   # Replace with your GCP project ID
+    schema: job_market_analytics
+    tables:
+      - name: data_jobs_France_main   
+        description: "Main table loaded from Kestra flow, containing raw job postings."
+        columns:
+          - name: id
+            description: "Unique job ID from scraped data."
+            tests:
+              - not_null
+              - unique
+
+models:
+  - name: stg_jobs
+    description: "Staging model for job market postings. Light cleanup and normalization applied."
+    columns:
+      - name: id
+        description: "Unique job ID."
+        tests:
+          - not_null
+          - unique
+
+      - name: title
+        description: "Job title, normalized."
+      
+      - name: company
+        description: "Company name, normalized."
+      
+      - name: location
+        description: "Job location."
+
+      - name: date_posted
+        description: "Date when the job was posted."
+
+      - name: min_amount
+        description: "Minimum salary extracted from the posting."
+      
+      - name: max_amount
+        description: "Maximum salary extracted from the posting."
+
+      - name: currency
+        description: "Currency in which the salary is expressed."
+
+      - name: is_remote
+        description: "Whether the job is remote."
+
+      - name: skills
+        description: "Skills explicitly required or extracted from the job description."
+
+      - name: description
+        description: "Full text of the job description, used for advanced NLP or skill extraction."
+
+      - name: company_rating
+        description: "Rating of the company (e.g., Glassdoor)."
+      
+      - name: company_reviews_count
+        description: "Number of reviews the company has received."
+
+      - name: vacancy_count
+        description: "Number of vacancies listed."
+
