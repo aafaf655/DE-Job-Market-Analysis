@@ -1,0 +1,102 @@
+id: 02_scrape_and_load_to_gcs
+namespace: job.market.analytics
+description: |
+  Scrape job postings from selected sites and upload to GCS.
+
+inputs:
+  - id: job
+    type: STRING
+    displayName: Search keyword (e.g. "data engineer")
+    defaults: "data"
+
+  - id: location
+    type: STRING
+    displayName: Job location (e.g. "France")
+    defaults: "France"
+
+  - id: results
+    type: INT
+    displayName: Number of results to scrape
+    defaults: 100
+
+  - id: sites
+    type: STRING
+    displayName: Comma-separated list of job sites (e.g. "indeed,glassdoor")
+    defaults: "indeed"
+
+variables:
+  file: "jobs_{{ inputs.job }}_{{ inputs.location }}.csv"
+  gcs_file: "gs://{{ kv('GCP_BUCKET_NAME') }}/{{ vars.file }}"
+  data: "{{ outputs.scrape_jobs.outputFiles['jobs_' ~ inputs.job ~ '_' ~ inputs.location ~ '.csv'] }}"
+  table: "{{kv('GCP_DATASET')}}.{{render(vars.data_name)}}"
+
+tasks:
+  - id: set_label
+    type: io.kestra.plugin.core.execution.Labels
+    labels:
+      job: "{{ inputs.job }}"
+      location: "{{ inputs.location }}"
+      sites: "{{ inputs.sites }}"
+      file: "{{ vars.file }}"
+
+  - id: scrape_jobs
+    type: io.kestra.plugin.scripts.python.Script
+    containerImage: python:3.11-slim
+    beforeCommands:
+      - apt-get update && apt-get install -y gcc && rm -rf /var/lib/apt/lists/*
+      - pip install python-jobspy
+    script: |
+      from jobspy import scrape_jobs
+
+      job = "{{ inputs.job }}"
+      location = "{{ inputs.location }}"
+      results = int("{{ inputs.results }}")
+      sites_raw = "{{ inputs.sites }}"
+      sites = [s.strip() for s in sites_raw.split(',')]
+      output_file = "{{ vars.file }}"
+
+      print(f"Scraping sites: {sites} for job: '{job}' in '{location}' (max {results})...")
+      df = scrape_jobs(
+          site_name=sites,
+          search_term=job,
+          location=location,
+          results_wanted=results,
+          country_indeed="{{ inputs.location }}"
+      )
+
+      if df.empty:
+          print("⚠️ Warning: No jobs found. Still creating empty CSV.")
+      df.to_csv(output_file, index=False)
+    outputFiles:
+      - "{{ vars.file }}"
+
+  - id: upload_to_gcs
+    type: io.kestra.plugin.gcp.gcs.Upload
+    from: "{{ render(vars.data) }}"
+    to: "{{ render(vars.gcs_file) }}"
+    serviceAccount: "{{ kv('GCP_CREDS') }}"
+
+  - id: upload_summary
+    type: io.kestra.plugin.core.log.Log
+    level: INFO
+    message: |
+      ✅ Scraped {{ inputs.results }} jobs for '{{ inputs.job }}' in '{{ inputs.location }}'.
+      ✅ Uploaded to: {{ vars.gcs_file }}
+
+  - id: create_external_table
+    type: io.kestra.plugin.gcp.bigquery.Query
+    serviceAccount: "{{ kv('GCP_CREDS') }}"
+    sql: |
+      CREATE OR REPLACE EXTERNAL TABLE `{{ vars.table_ext }}`
+      OPTIONS (
+          format = 'CSV',
+          uris = ['{{ vars.gcs_file }}'],
+          skip_leading_rows = 1,
+          ignore_unknown_values = TRUE,
+          autodetect = TRUE
+      );
+
+triggers:
+  - id: daily_schedule
+    type: io.kestra.plugin.core.trigger.Schedule
+    cron: "0 3 * * *"  # 3AM UTC every day

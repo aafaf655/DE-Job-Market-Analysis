@@ -1,0 +1,251 @@
+id: 02_scrape_and_load_to_gcs
+namespace: job.market.analytics
+description: |
+  Scrape job postings from selected sites and upload to GCS.
+
+inputs:
+  - id: job
+    type: STRING
+    displayName: Search keyword (e.g. "data engineer")
+    defaults: "data"
+
+  - id: location
+    type: STRING
+    displayName: Job location (e.g. "France")
+    defaults: "France"
+
+  - id: results
+    type: INT
+    displayName: Number of results to scrape
+    defaults: 100
+
+  - id: sites
+    type: STRING
+    displayName: Comma-separated list of job sites (e.g. "indeed,glassdoor")
+    defaults: "indeed"
+
+variables:
+  file: "{{ inputs.job }}_jobs_{{ inputs.location }}.csv"
+  gcs_file: "gs://{{ kv('GCP_BUCKET_NAME') }}/{{ vars.file }}"
+  data: "{{ outputs.scrape_jobs.outputFiles[ inputs.job ~ '_jobs_' ~ inputs.location ~ '.csv'] }}"
+  table: "{{kv('GCP_DATASET')}}.{{ inputs.job }}_jobs_{{ inputs.location }}"
+
+tasks:
+  - id: set_label
+    type: io.kestra.plugin.core.execution.Labels
+    labels:
+      job: "{{ inputs.job }}"
+      location: "{{ inputs.location }}"
+      sites: "{{ inputs.sites }}"
+      file: "{{ vars.file }}"
+
+  - id: scrape_jobs
+    type: io.kestra.plugin.scripts.python.Script
+    containerImage: python:3.11-slim
+    beforeCommands:
+      - apt-get update && apt-get install -y gcc && rm -rf /var/lib/apt/lists/*
+      - pip install python-jobspy
+    script: |
+      from jobspy import scrape_jobs
+
+      job = "{{ inputs.job }}"
+      location = "{{ inputs.location }}"
+      results = int("{{ inputs.results }}")
+      sites_raw = "{{ inputs.sites }}"
+      sites = [s.strip() for s in sites_raw.split(',')]
+      output_file = "{{ vars.file }}"
+
+      print(f"Scraping sites: {sites} for job: '{job}' in '{location}' (max {results})...")
+      df = scrape_jobs(
+          site_name=sites,
+          search_term=job,
+          location=location,
+          results_wanted=results,
+          country_indeed="{{ inputs.location }}"
+      )
+
+      if df.empty:
+          print("⚠️ Warning: No jobs found. Still creating empty CSV.")
+      df.to_csv(output_file, index=False)
+    outputFiles:
+      - "{{ vars.file }}"
+
+  - id: upload_to_gcs
+    type: io.kestra.plugin.gcp.gcs.Upload
+    from: "{{ render(vars.data) }}"
+    to: "{{ render(vars.gcs_file) }}"
+
+  - id: upload_summary
+    type: io.kestra.plugin.core.log.Log
+    level: INFO
+    message: |
+      ✅ Scraped {{ inputs.results }} jobs for '{{ inputs.job }}' in '{{ inputs.location }}'.
+      ✅ Uploaded to: {{ vars.gcs_file }}
+
+  - id: create_main_bq_table
+    type: io.kestra.plugin.gcp.bigquery.Query
+    sql: |
+      CREATE TABLE IF NOT EXISTS `{{kv('GCP_PROJECT_ID')}}.{{render(vars.table)}}_main` 
+      (
+        id STRING OPTIONS (description = 'Job ID, unique identifier'),
+        job_url STRING OPTIONS (description = 'URL of the job posting'),
+        title STRING OPTIONS (description = 'Job title'),
+        company STRING OPTIONS (description = 'Company name'),
+        location STRING OPTIONS (description = 'Job location'),
+        date_posted DATE OPTIONS (description = 'The date the job was posted'),
+        job_type STRING OPTIONS (description = 'Job type (e.g., fulltime, part-time)'),
+        min_amount NUMERIC(10,2) OPTIONS (description = 'Minimum salary amount'),
+        max_amount NUMERIC(10,2) OPTIONS (description = 'Maximum salary amount'),
+        is_remote BOOL OPTIONS (description = 'Whether the job is remote'),
+        company_industry STRING OPTIONS (description = 'Industry of the company'),
+        company_num_employees STRING OPTIONS (description = 'Number of employees in the company'),
+        skills STRING OPTIONS (description = 'Skills required for the job')
+      )
+      PARTITION BY date_posted;
+
+
+  - id: create_external_table
+    type: io.kestra.plugin.gcp.bigquery.Query
+    sql: |
+      CREATE OR REPLACE EXTERNAL TABLE `{{ kv('GCP_PROJECT_ID') }}.{{ render(vars.table) }}_ext`
+      (
+        id STRING OPTIONS (description = 'Job ID, unique identifier'),
+        site STRING OPTIONS (description = 'Source site where the job was scraped'),
+        job_url STRING OPTIONS (description = 'URL of the job posting'),
+        job_url_direct STRING OPTIONS (description = 'Direct URL to job posting'),
+        title STRING OPTIONS (description = 'Job title'),
+        company STRING OPTIONS (description = 'Company name'),
+        location STRING OPTIONS (description = 'Job location'),
+        date_posted STRING OPTIONS (description = 'Date when job was posted (YYYY-MM-DD)'),
+        job_type STRING OPTIONS (description = 'Type of job: full-time, part-time, etc.'),
+        salary_source STRING OPTIONS (description = 'Source of salary information'),
+        `interval` STRING OPTIONS (description = 'Salary interval (e.g., yearly, monthly)'),
+        min_amount STRING OPTIONS (description = 'Minimum salary amount'),
+        max_amount STRING OPTIONS (description = 'Maximum salary amount'),
+        currency STRING OPTIONS (description = 'Currency of salary (e.g., USD, EUR)'),
+        is_remote STRING OPTIONS (description = 'Whether the job is remote (true/false)'),
+        job_level STRING OPTIONS (description = 'Seniority level of the job'),
+        job_function STRING OPTIONS (description = 'Function or department of the job'),
+        listing_type STRING OPTIONS (description = 'Type of job listing'),
+        emails STRING OPTIONS (description = 'Email addresses extracted from job description'),
+        description STRING OPTIONS (description = 'Full job description text'),
+        company_industry STRING OPTIONS (description = 'Industry sector of the company'),
+        company_url STRING OPTIONS (description = 'URL of the company website'),
+        company_logo STRING OPTIONS (description = 'URL of the company logo image'),
+        company_url_direct STRING OPTIONS (description = 'Direct link to the company page'),
+        company_addresses STRING OPTIONS (description = 'Company addresses'),
+        company_num_employees STRING OPTIONS (description = 'Approximate number of employees'),
+        company_revenue STRING OPTIONS (description = 'Revenue range of the company'),
+        company_description STRING OPTIONS (description = 'Brief company description'),
+        skills STRING OPTIONS (description = 'Skills required for the job (provided or extracted)'),
+        experience_range STRING OPTIONS (description = 'Experience range for the role'),
+        company_rating STRING OPTIONS (description = 'Company rating on sites like Glassdoor'),
+        company_reviews_count STRING OPTIONS (description = 'Number of reviews for the company'),
+        vacancy_count STRING OPTIONS (description = 'Number of job vacancies open'),
+        work_from_home_type STRING OPTIONS (description = 'Type of remote work arrangement')
+      )
+      OPTIONS (
+        format = 'CSV',
+        uris = ['{{ render(vars.gcs_file) }}'],
+        skip_leading_rows = 1,
+        ignore_unknown_values = TRUE,
+        allow_jagged_rows = TRUE,
+        allow_quoted_newlines = TRUE,
+        quote = "\"",
+        field_delimiter = ","
+      );
+
+
+  - id: create_temp_bq_table
+    type: io.kestra.plugin.gcp.bigquery.Query
+    serviceAccount: "{{ kv('GCP_CREDS') }}"
+    sql: |
+      CREATE OR REPLACE TABLE `{{ kv('GCP_PROJECT_ID') }}.{{ render(vars.table) }}_tmp` AS
+      SELECT
+        id,
+        job_url,
+        title,
+        company,
+        location,
+        SAFE.PARSE_DATE('%Y-%m-%d', date_posted) AS date_posted, -- ✅ convert date
+        job_type,
+        SAFE_CAST(min_amount AS NUMERIC) AS min_amount,          -- ✅ cast safely
+        SAFE_CAST(max_amount AS NUMERIC) AS max_amount,          -- ✅ cast safely
+        CASE
+          WHEN LOWER(is_remote) = 'true' THEN TRUE
+          WHEN LOWER(is_remote) = 'false' THEN FALSE
+          ELSE NULL
+        END AS is_remote,                                        -- ✅ boolean conversion
+        company_industry,
+        company_num_employees,
+        CASE
+          WHEN skills IS NOT NULL AND skills != '' THEN skills
+          ELSE ARRAY_TO_STRING(
+            ARRAY(
+              SELECT skill
+              FROM UNNEST([
+                'python', 'sql', 'aws', 'pandas', 'spark', 'docker', 'kubernetes', 'data engineering', 'machine learning', 'deep learning'
+              ]) AS skill
+              WHERE REGEXP_CONTAINS(LOWER(description), r'\\b' || LOWER(skill) || r'\\b')
+            ), ', '
+          )
+        END AS skills
+      FROM
+        `{{ kv('GCP_PROJECT_ID') }}.{{ render(vars.table) }}_ext`
+      WHERE
+        id IS NOT NULL;
+
+
+  - id: merge_into_main_table
+    type: io.kestra.plugin.gcp.bigquery.Query
+    sql: |
+      MERGE INTO `{{ kv('GCP_PROJECT_ID') }}.{{ render(vars.table) }}_main` T
+      USING `{{ kv('GCP_PROJECT_ID') }}.{{ render(vars.table) }}_tmp` S
+      ON T.id = S.id
+      WHEN NOT MATCHED THEN
+        INSERT (
+          id,
+          job_url,
+          title,
+          company,
+          location,
+          date_posted,
+          job_type,
+          min_amount,
+          max_amount,
+          is_remote,
+          company_industry,
+          company_num_employees,
+          skills
+        )
+        VALUES (
+          S.id,
+          S.job_url,
+          S.title,
+          S.company,
+          S.location,
+          S.date_posted,
+          S.job_type,
+          S.min_amount,
+          S.max_amount,
+          S.is_remote,
+          S.company_industry,
+          S.company_num_employees,
+          S.skills
+        );
+
+
+
+pluginDefaults:
+  - type: io.kestra.plugin.gcp
+    values:
+      serviceAccount: "{{kv('GCP_CREDS')}}"
+      projectId: "{{kv('GCP_PROJECT_ID')}}"
+      location: "{{kv('GCP_LOCATION')}}"
+      bucket: "{{kv('GCP_BUCKET_NAME')}}"
+
+
+triggers:
+  - id: daily_schedule
+    type: io.kestra.plugin.core.trigger.Schedule
+    cron: "0 3 * * *"  # 3AM UTC every day
