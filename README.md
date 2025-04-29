@@ -6,7 +6,7 @@ As someone interested in a career in Data Engineering, I must understand what sk
 
 ## Objective 
 
-Develop an end-to-end, data pipeline for collecting, transforming, storing, and visualizing job market data to analyze Data Engineering opportunities in France. This project aims to provide valuable insights into:
+Develop an end-to-end, data pipeline for collecting, transforming, storing, and visualizing job market data to analyze Data Engineering opportunities in France. This project aims to provide valuable insights into :
 
 - The demand for Data Engineering roles across various industries.
 - The most sought-after skills and technologies in the field.
@@ -81,7 +81,7 @@ Company performance and job trends over time
 
 ## Power BI Dashboard
 jobs scraped in one day :
-![Data Engineering Job Market Analysis Dashboard](image-1.png)
+![Data Engineering Job Market Analysis Dashboard](images/image-1.png)
 
 ## How to Run the Project (Reproducibility)
 ### ✅ Prerequisites
