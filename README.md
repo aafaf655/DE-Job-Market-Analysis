@@ -28,6 +28,7 @@ Develop an end-to-end, data pipeline for collecting, transforming, storing, and 
 ```
 .
 ├── README.md           # Project documentation
+├── docker-compose.yml  # Services setup
 ├── dbt                 # dbt transformation logic
 │   ├── job_market_analysis  # dbt project directory
 │   │   ├── models      # Core, marts, and staging models
@@ -36,48 +37,48 @@ Develop an end-to-end, data pipeline for collecting, transforming, storing, and 
 │   │   ├── seeds       # Seed data
 │   │   ├── snapshots   # Snapshot tables
 │   │   ├── dbt_project.yml # dbt project config
-├── docker              # Docker configuration
-│   └── docker-compose.yml # Services setup
+├   ├   ├── packages.yml # packages used
+├── images              # images used in readMe
 ├── kestra              # Kestra workflows for orchestration
 │   ├── flows           # Workflow definitions
-│   ├── data           # example of data ingested
+│   ├── data            # example of data ingested
 └── terraform           # Infrastructure as code
     ├── main.tf         # Terraform configuration
     ├── variables.tf    # Terraform variables
 ```
 
 ## Data Pipeline Workflow
-1. **🏗️ Infrastructure Setup**
-All cloud resources (GCS bucket, BigQuery dataset, service accounts) are provisioned and managed using Terraform.
+1. **Infrastructure Setup** :
+- All cloud resources (GCS bucket, BigQuery dataset, service accounts) are provisioned and managed using Terraform.
 
-2. **🔄 Data Ingestion**
+2. **Data Ingestion** :
 - Job postings are scraped using ([JobSpy](https://github.com/speedyapply/JobSpy))
 - A Kestra workflow handles scraping and saves results as CSV.
 - CSVs are uploaded to a Google Cloud Storage (GCS) bucket.
 - An external BigQuery table points directly to the raw CSV in GCS.
 
-3. **🧹 Transformations with dbt**
+3. **Transformations with dbt** :
 - Data is typed and cleaned in temporary BigQuery tables via Kestra.
 - dbt then builds:
     - stg_jobs (staging layer)
     - Core tables: fact_jobs, dim_company, dim_skills
     - Marts: mart_top_skills, mart_salary_distribution, mart_remote_jobs, mart_company_performance
-    - Models are materialized as views or tables for efficient querying.
+- Models are materialized as views or tables for efficient querying.
 
-4.**⏱️ Orchestration with Kestra**
-Kestra automates:
-- Daily scraping
-- File uploads to GCS
-- BigQuery external and staging table creation
-- Triggering dbt transformations via CLI
+4. **Orchestration with Kestra** :
+- Kestra automates:
+    - Daily scraping
+    - File uploads to GCS
+    - BigQuery external and staging table creation
+    - Triggering dbt transformations via CLI
 
-###  📈 Visualization in Power BI
+5. **Visualization in Power BI** :
 - Final analytical tables are queried directly from BigQuery.
 - Power BI dashboards provide insights on:
-Top skills by demand
-Remote work trends
-Salary distributions
-Company performance and job trends over time
+    - Top skills by demand
+    - Remote work trends
+    - Salary distributions
+    - Company performance and job trends over time
 
 ## Power BI Dashboard
 jobs scraped in one day :
@@ -141,12 +142,12 @@ Edit dbt/job_market_analysis/models/staging/schema.yml:
    ```
 
 9. Visualize data in Power BI:
-- Connect Power BI to BigQuery
-- Query marts like:
-    - mart_top_skills
-    - mart_salary_distribution
-    - mart_remote_jobs
-    - mart_company_performance
+    - Connect Power BI to BigQuery
+    - Query marts like:
+        - mart_top_skills
+        - mart_salary_distribution
+        - mart_remote_jobs
+        - mart_company_performance
 
-Build interactive dashboards from these models.
+    Build interactive dashboards from these models.
 
