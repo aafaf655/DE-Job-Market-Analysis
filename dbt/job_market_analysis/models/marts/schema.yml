@@ -1,0 +1,52 @@
+version: 2
+
+models:
+  - name: mart_remote_jobs
+    description: "Mart analyzing the ratio of remote versus on-site jobs by location."
+    columns:
+      - name: location
+        description: "Location where the job is based."
+      - name: total_jobs
+        description: "Total number of jobs posted for this location."
+      - name: remote_jobs
+        description: "Number of remote jobs for this location."
+      - name: remote_ratio
+        description: "Ratio of remote jobs to total jobs for the location."
+
+  - name: mart_salary_distribution
+    description: "Mart analyzing salary distributions by job type and location."
+    columns:
+      - name: job_type
+        description: "Type of job (full-time, part-time, contract, etc.)."
+      - name: location
+        description: "Location where the job is based."
+      - name: number_of_jobs
+        description: "Number of jobs for the job type and location."
+      - name: avg_min_salary
+        description: "Average minimum salary offered."
+      - name: avg_max_salary
+        description: "Average maximum salary offered."
+      - name: min_salary
+        description: "Lowest minimum salary found."
+      - name: max_salary
+        description: "Highest maximum salary found."
+
+  - name: mart_job_trends_over_time
+    description: "Mart tracking the number of job postings over time, grouped by week."
+    columns:
+      - name: week_start_date
+        description: "Start date of the week."
+      - name: number_of_jobs
+        description: "Number of job postings for that week."
+
+  - name: mart_company_performance
+    description: "Mart showing company hiring activity and company ratings."
+    columns:
+      - name: company_name
+        description: "Name of the company."
+      - name: number_of_jobs
+        description: "Number of jobs posted by the company."
+      - name: avg_company_rating
+        description: "Average company rating across job postings."
+      - name: total_reviews
+        description: "Total number of company reviews across job postings."
