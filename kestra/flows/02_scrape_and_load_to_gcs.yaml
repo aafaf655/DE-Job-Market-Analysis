@@ -24,10 +24,15 @@ inputs:
     displayName: Comma-separated list of job sites (e.g. "indeed,glassdoor")
     defaults: "indeed"
 
+  - id: suivi
+    type: INT
+    displayName: suivi local à supprimer
+    defaults: 1
+
 variables:
-  file: "{{ inputs.job }}_jobs_{{ inputs.location }}.csv"
+  file: "{{ inputs.job }}_jobs_{{ inputs.location }}_{{ inputs.suivi }}.csv"
   gcs_file: "gs://{{ kv('GCP_BUCKET_NAME') }}/{{ vars.file }}"
-  data: "{{ outputs.scrape_jobs.outputFiles[ inputs.job ~ '_jobs_' ~ inputs.location ~ '.csv'] }}"
+  data: "{{ outputs.scrape_jobs.outputFiles[ inputs.job ~ '_jobs_' ~ inputs.location ~ '_' ~ inputs.suivi ~ '.csv'] }}"
   table: "{{kv('GCP_DATASET')}}.{{ inputs.job }}_jobs_{{ inputs.location }}"
 
 tasks:
@@ -61,7 +66,8 @@ tasks:
           search_term=job,
           location=location,
           results_wanted=results,
-          country_indeed="{{ inputs.location }}"
+          country_indeed="{{ inputs.location }}",
+          linkedin_fetch_description=True
       )
 
       if df.empty:
@@ -85,21 +91,42 @@ tasks:
   - id: create_main_bq_table
     type: io.kestra.plugin.gcp.bigquery.Query
     sql: |
-      CREATE TABLE IF NOT EXISTS `{{kv('GCP_PROJECT_ID')}}.{{render(vars.table)}}_main` 
+      CREATE TABLE IF NOT EXISTS `{{ kv('GCP_PROJECT_ID') }}.{{ render(vars.table) }}_main`
       (
         id STRING OPTIONS (description = 'Job ID, unique identifier'),
+        site STRING OPTIONS (description = 'Source site where the job was scraped'),
         job_url STRING OPTIONS (description = 'URL of the job posting'),
+        job_url_direct STRING OPTIONS (description = 'Direct URL to job posting'),
         title STRING OPTIONS (description = 'Job title'),
         company STRING OPTIONS (description = 'Company name'),
         location STRING OPTIONS (description = 'Job location'),
         date_posted DATE OPTIONS (description = 'The date the job was posted'),
-        job_type STRING OPTIONS (description = 'Job type (e.g., fulltime, part-time)'),
+        job_type STRING OPTIONS (description = 'Type of job: full-time, part-time, etc.'),
+        salary_source STRING OPTIONS (description = 'Source of salary information'),
+        `interval` STRING OPTIONS (description = 'Salary interval (e.g., yearly, monthly)'),
         min_amount NUMERIC(10,2) OPTIONS (description = 'Minimum salary amount'),
         max_amount NUMERIC(10,2) OPTIONS (description = 'Maximum salary amount'),
+        currency STRING OPTIONS (description = 'Currency of salary (e.g., USD, EUR)'),
         is_remote BOOL OPTIONS (description = 'Whether the job is remote'),
-        company_industry STRING OPTIONS (description = 'Industry of the company'),
-        company_num_employees STRING OPTIONS (description = 'Number of employees in the company'),
-        skills STRING OPTIONS (description = 'Skills required for the job')
+        job_level STRING OPTIONS (description = 'Seniority level of the job'),
+        job_function STRING OPTIONS (description = 'Function or department of the job'),
+        listing_type STRING OPTIONS (description = 'Type of job listing'),
+        emails STRING OPTIONS (description = 'Email addresses extracted from job description'),
+        description STRING OPTIONS (description = 'Full job description text'),
+        company_industry STRING OPTIONS (description = 'Industry sector of the company'),
+        company_url STRING OPTIONS (description = 'URL of the company website'),
+        company_logo STRING OPTIONS (description = 'URL of the company logo image'),
+        company_url_direct STRING OPTIONS (description = 'Direct link to the company page'),
+        company_addresses STRING OPTIONS (description = 'Company addresses'),
+        company_num_employees STRING OPTIONS (description = 'Approximate number of employees'),
+        company_revenue STRING OPTIONS (description = 'Revenue range of the company'),
+        company_description STRING OPTIONS (description = 'Brief company description'),
+        skills STRING OPTIONS (description = 'Skills required for the job (provided or extracted)'),
+        experience_range STRING OPTIONS (description = 'Experience range for the role'),
+        company_rating STRING OPTIONS (description = 'Company rating on sites like Glassdoor'),
+        company_reviews_count STRING OPTIONS (description = 'Number of reviews for the company'),
+        vacancy_count STRING OPTIONS (description = 'Number of job vacancies open'),
+        work_from_home_type STRING OPTIONS (description = 'Type of remote work arrangement')
       )
       PARTITION BY date_posted;
 
@@ -163,33 +190,43 @@ tasks:
       CREATE OR REPLACE TABLE `{{ kv('GCP_PROJECT_ID') }}.{{ render(vars.table) }}_tmp` AS
       SELECT
         id,
+        site,
         job_url,
+        job_url_direct,
         title,
         company,
         location,
-        SAFE.PARSE_DATE('%Y-%m-%d', date_posted) AS date_posted, -- ✅ convert date
+        SAFE.PARSE_DATE('%Y-%m-%d', date_posted) AS date_posted,
         job_type,
-        SAFE_CAST(min_amount AS NUMERIC) AS min_amount,          -- ✅ cast safely
-        SAFE_CAST(max_amount AS NUMERIC) AS max_amount,          -- ✅ cast safely
+        salary_source,
+        `interval`,
+        SAFE_CAST(min_amount AS NUMERIC) AS min_amount,
+        SAFE_CAST(max_amount AS NUMERIC) AS max_amount,
+        currency,
         CASE
           WHEN LOWER(is_remote) = 'true' THEN TRUE
           WHEN LOWER(is_remote) = 'false' THEN FALSE
           ELSE NULL
-        END AS is_remote,                                        -- ✅ boolean conversion
+        END AS is_remote,
+        job_level,
+        job_function,
+        listing_type,
+        emails,
+        description,
         company_industry,
+        company_url,
+        company_logo,
+        company_url_direct,
+        company_addresses,
         company_num_employees,
-        CASE
-          WHEN skills IS NOT NULL AND skills != '' THEN skills
-          ELSE ARRAY_TO_STRING(
-            ARRAY(
-              SELECT skill
-              FROM UNNEST([
-                'python', 'sql', 'aws', 'pandas', 'spark', 'docker', 'kubernetes', 'data engineering', 'machine learning', 'deep learning'
-              ]) AS skill
-              WHERE REGEXP_CONTAINS(LOWER(description), r'\\b' || LOWER(skill) || r'\\b')
-            ), ', '
-          )
-        END AS skills
+        company_revenue,
+        company_description,
+        skills,
+        experience_range,
+        company_rating,
+        company_reviews_count,
+        vacancy_count,
+        work_from_home_type
       FROM
         `{{ kv('GCP_PROJECT_ID') }}.{{ render(vars.table) }}_ext`
       WHERE
@@ -198,6 +235,7 @@ tasks:
 
   - id: merge_into_main_table
     type: io.kestra.plugin.gcp.bigquery.Query
+    serviceAccount: "{{ kv('GCP_CREDS') }}"
     sql: |
       MERGE INTO `{{ kv('GCP_PROJECT_ID') }}.{{ render(vars.table) }}_main` T
       USING `{{ kv('GCP_PROJECT_ID') }}.{{ render(vars.table) }}_tmp` S
@@ -205,33 +243,75 @@ tasks:
       WHEN NOT MATCHED THEN
         INSERT (
           id,
+          site,
           job_url,
+          job_url_direct,
           title,
           company,
           location,
           date_posted,
           job_type,
+          salary_source,
+          `interval`,
           min_amount,
           max_amount,
+          currency,
           is_remote,
+          job_level,
+          job_function,
+          listing_type,
+          emails,
+          description,
           company_industry,
+          company_url,
+          company_logo,
+          company_url_direct,
+          company_addresses,
           company_num_employees,
-          skills
+          company_revenue,
+          company_description,
+          skills,
+          experience_range,
+          company_rating,
+          company_reviews_count,
+          vacancy_count,
+          work_from_home_type
         )
         VALUES (
           S.id,
+          S.site,
           S.job_url,
+          S.job_url_direct,
           S.title,
           S.company,
           S.location,
           S.date_posted,
           S.job_type,
+          S.salary_source,
+          S.`interval`,
           S.min_amount,
           S.max_amount,
+          S.currency,
           S.is_remote,
+          S.job_level,
+          S.job_function,
+          S.listing_type,
+          S.emails,
+          S.description,
           S.company_industry,
+          S.company_url,
+          S.company_logo,
+          S.company_url_direct,
+          S.company_addresses,
           S.company_num_employees,
-          S.skills
+          S.company_revenue,
+          S.company_description,
+          S.skills,
+          S.experience_range,
+          S.company_rating,
+          S.company_reviews_count,
+          S.vacancy_count,
+          S.work_from_home_type
         );
 
 

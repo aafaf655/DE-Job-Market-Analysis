@@ -1,5 +1,6 @@
 id: 03_gcp_dbt
-namespace: zoomcamp
+namespace: job.market.analytics
+
 inputs:
   - id: dbt_command
     type: SELECT
@@ -12,51 +13,48 @@ inputs:
 tasks:
   - id: sync
     type: io.kestra.plugin.git.SyncNamespaceFiles
-    url: https://github.com/DataTalksClub/data-engineering-zoomcamp
+    url: https://github.com/aafaf655/DE-Job-Market-Analysis 
     branch: main
-    namespace: "{{flow.namespace}}"
-    gitDirectory: 04-analytics-engineering/taxi_rides_ny
+    namespace: "{{ flow.namespace }}"
+    gitDirectory: dbt/job_market_analysis 
     dryRun: false
-    # disabled: true # this Git Sync is needed only when running it the first time, afterwards the task can be disabled
+    disabled: false  # Needed only on first run
 
   - id: dbt-build
     type: io.kestra.plugin.dbt.cli.DbtCLI
     env:
-      DBT_DATABASE: "{{kv('GCP_PROJECT_ID')}}"
-      DBT_SCHEMA: "{{kv('GCP_DATASET')}}"
+      DBT_DATABASE: "{{ kv('GCP_PROJECT_ID') }}"
+      DBT_SCHEMA: "{{ kv('GCP_DATASET') }}"
     namespaceFiles:
       enabled: true
     containerImage: ghcr.io/kestra-io/dbt-bigquery:latest
     taskRunner:
       type: io.kestra.plugin.scripts.runner.docker.Docker
     inputFiles:
-      sa.json: "{{kv('GCP_CREDS')}}"
+      sa.json: "{{ kv('GCP_CREDS') }}"
     commands:
       - dbt deps
+      - dbt compile
       - "{{ inputs.dbt_command }}"
     storeManifest:
       key: manifest.json
       namespace: "{{ flow.namespace }}"
     profiles: |
-      default:
+      job_market_analysis: 
         outputs:
           dev:
             type: bigquery
-            dataset: "{{kv('GCP_DATASET')}}"
-            project: "{{kv('GCP_PROJECT_ID')}}"
-            location: "{{kv('GCP_LOCATION')}}"
-            keyfile: sa.json
             method: service-account
+            project: "{{ kv('GCP_PROJECT_ID') }}"
+            dataset: "{{ kv('GCP_DATASET') }}"
+            location: "{{ kv('GCP_LOCATION') }}"
+            keyfile: sa.json
+            threads: 8
             priority: interactive
-            threads: 16
             timeout_seconds: 300
             fixed_retries: 1
         target: dev
+
 description: |
-  Note that you need to adjust the models/staging/schema.yml file to match your database and schema. Select and edit that Namespace File from the UI. Save and run this flow. Once https://github.com/DataTalksClub/data-engineering-zoomcamp/pull/565/files is merged, you can ignore this note as it will be dynamically adjusted based on env variables.
-  ```yaml
-  sources:
-    - name: staging
-      database: kestra-sandbox 
-      schema: zoomcamp
-  ```
+  This flow syncs dbt project files from GitHub, and runs dbt commands like `dbt build` on BigQuery.
+  Profiles, credentials, and configurations are injected dynamically.
